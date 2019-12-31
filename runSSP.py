@@ -4,6 +4,7 @@ import csv
 import numpy
 import matplotlib.pyplot as plt
 import math
+import time
 
 
 def Calc_first_n_primes(n):
@@ -55,7 +56,7 @@ def print_setup(num):
     return setup
 
 
-#__________________________________________________________MAIN___________________________________________________________________-
+#_____________________-____________________________________MAIN___________________________________________________________________-
 
 # creating an empty list 
 lst = [] 
@@ -114,7 +115,13 @@ BCS_file.write(bcs_code)                         # Write the bcs code to the fil
 BCS_file.close()                                 # close the file
 
 DIR_path = Path().absolute()
+
+start = time.time()  # get time before computation
 subprocess.run(str(DIR_path) + '/bin/bcs generated_bcs_code.bc', shell = True)	# Run BCS simulation on the generated code
+end = time.time()    # get time after computation
+
+elapsed_time = end-start  # estimate the computation time
+
 results = numpy.zeros(sum + 1, dtype = numpy.int8)
 #--------------------------------------------------------------------------------------------------------------#
 
@@ -138,6 +145,8 @@ results = numpy.absolute(results) # for some reason I can't see some of the resu
 for counter,value in enumerate(results):
     print("Number of agents on output slot " + str(counter) + ": " + str(value) + '\n') 
 
+print("Elapsed computation time: " + str(elapsed_time) + " seconds\n")
+
 plt.figure()
 plt.bar(range(0,len(results)), results)
 plt.xlabel('Output slots')
@@ -156,10 +165,4 @@ while True:
 
     print("Number of agents on output slot " + str(answer) + ": " + str(results[int(answer)]) + '\n')
 
-        
-
-
-
-
-
-    
+       
