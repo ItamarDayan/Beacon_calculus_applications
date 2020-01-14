@@ -33,7 +33,7 @@ def print_partial_sums(lst,n):
     sum = 0
     partial_sums = ""
     partial_sums += "0"
-    for i in range(0,n):
+    for i in range(0,n-1):
         sum += lst[i]
         partial_sums += (", " + str(sum))
 
@@ -42,7 +42,7 @@ def print_partial_sums(lst,n):
 
 def print_setup_params(num):
     setup_params = "s0"
-    for i in range(1, num+1):
+    for i in range(1, num):
         setup_params += ",s" + str(i)
 
     return setup_params
@@ -56,7 +56,7 @@ def print_setup(num):
     return setup
 
 
-#_____________________-____________________________________MAIN___________________________________________________________________-
+#________________________________________________________MAIN___________________________________________________________________-
 
 # creating an empty list 
 lst = [] 
@@ -94,9 +94,9 @@ Setup[''' + print_setup_params(n) + '''] = ''' + print_setup(n) + '''.{start![1]
  
 P[x,y,sum,last] = {start?[1], r}.
 (
-[y==sum]->{done![x],fast} + 
+[y==sum]->{done![x],fast} ||
 
-[y!=sum]->{y?[0..sum], fast}.({splitDown,1}.P[x,y+1,sum,0] + {splitDiag,1}.P[x+1,y+1,sum,1]) +
+[y!=sum]->{y?[0..sum], fast}.({splitDown,1}.P[x,y+1,sum,0] + {splitDiag,1}.P[x+1,y+1,sum,1]) ||
 
 [y!=sum]->{~y?[0..sum],fast}.( [last == 0] -> {continueStraight, r}.P[x,y+1,sum,0] + [last == 1]-> {continueStraight, r}.P[x+1,y+1,sum,1])
 );
@@ -165,4 +165,11 @@ while True:
 
     print("Number of agents on output slot " + str(answer) + ": " + str(results[int(answer)]) + '\n')
 
-       
+        
+
+
+
+
+
+    
+
