@@ -1,0 +1,408 @@
+from pathlib import Path
+import subprocess
+import csv
+import numpy
+import matplotlib.pyplot as plt
+import math
+import time
+import abc
+
+class Script_generator:
+
+    def __init__(self, list, num_of_agents, bcs_file_name):
+        self.list = list
+        self.list_sum = sum(list)
+        self.list_length = len(list)
+        self.num_of_agents = int(num_of_agents)
+        self.bcs_file_name = bcs_file_name
+        self.bcs_code = ""
+        self.DIR_path = Path().absolute()
+        self. elapsed_time = 0
+        self.results = []
+
+    def get_partial_sums(self):
+        # The method returns a list of the partial sums of self.list
+        lst = self.list
+        n = self.list_length
+
+        sum = 0
+        partial_sums = []
+
+        for i in range(0,n-1):
+            sum += lst[i]
+            partial_sums.append(sum)
+
+        return partial_sums
+
+    def print_partial_sums(self):
+        # The function returns a string that describes the partial sums of self.list
+        partial_sums_list = self.get_partial_sums()
+        
+        partial_sums = "0"
+
+        for item in partial_sums_list:
+            partial_sums += ", " + str(item)
+        
+        return partial_sums
+
+    def print_setup_params(self):
+        setup_params = "s0"
+        for i in range(1, self.list_length):
+            setup_params += ",s" + str(i)
+
+        return setup_params
+
+    @abc.abstractmethod
+    def print_setup(self):
+        '''This method prints the bcs setup. Implementation in inheriting classes'''
+        return
+
+    def print_proccesses_start(self):
+        serial = 0
+        string = ""
+        for i in range(0, self.num_of_agents):
+            string += "||" + "P[0,0," + str(self.list_sum) + ",0,"+ str(serial) +"]\n"
+            serial += 1
+        string += ";"
+        return string
+    
+    
+        self.bcs_code = bcs_code
+
+    def generate_and_run(self):
+        #---------------------------Create a new file for the generated code and run a simulation---------------------# 
+        BCS_file = open(self.bcs_file_name, "w")    # Open a new text file with write premissions
+        BCS_file.write(self.bcs_code)                         # Write the bcs code to the file
+        BCS_file.close()                                 # close the file
+
+        start = time.time()  # get time before computation
+        subprocess.run(str(self.DIR_path) + '/bin/bcs ' + self.bcs_file_name, shell = True)	# Run BCS simulation on the generated code
+        end = time.time()    # get time after computation
+
+        self.elapsed_time = end-start  # estimate the computation time
+        #--------------------------------------------------------------------------------------------------------------#
+
+    def save_plot(self):
+        results = self.results
+        
+        plt.figure()
+        plt.bar(range(0,len(results)), results)
+        plt.xlabel('Output slots')
+        plt.ylabel('Number of agents')
+        plt.savefig('resultsFig')
+
+    def print_results(self):
+        results = self.results
+        elapsed_time = self.elapsed_time
+
+        print("--------------------------------------RESULTS--------------------------------------------\n\n")
+
+        results = numpy.absolute(results) # for some reason I can't see some of the results becomes negative in the np array
+
+        for counter,value in enumerate(results):
+            print("Number of agents on output slot " + str(counter) + ": " + str(value) + '\n') 
+
+        print("Elapsed computation time: " + str(elapsed_time) + " seconds\n")
+
+    def browse_results(self):
+        results = self.results
+
+        while True:
+            answer = input("To get a specific result, enter the slot number; otherwise enter -1 \n")
+            answer = int(answer)
+            if answer == -1:
+                    break
+
+            if answer >= len(results) or answer < -1:
+                print("Index out of results range\n")
+                continue
+
+            print("Number of agents on output slot " + str(answer) + ": " + str(results[int(answer)]) + '\n')
+
+
+class SSP(Script_generator):
+
+    def __init__(self, list, num_of_agents, bcs_file_name):
+        super().__init__(list, num_of_agents, bcs_file_name)
+
+    def print_setup(self):
+        setup = "{s0![1],fast}"
+        for i in range(1, self.list_length):
+            setup += ".{s" + str(i) + "![1],fast}"
+
+        return setup
+
+    def interpret_results(self):
+        #----------------------------Read and interpret the results file----------------------------------------------#
+        DIR_path = self.DIR_path
+        list_sum = self.list_sum
+        results = numpy.zeros(list_sum + 1, dtype = numpy.int8)
+        
+        with open(str(DIR_path) + '/simulationOutput') as csvFile:			
+            fileReader = csv.reader(csvFile, delimiter = '\t', skipinitialspace=True)
+            for line in fileReader:
+                if "P" in line:  # if this line describes a proccess
+                    if "done" in line:  # if the agent is done
+                        index = int(line[line.index("x") + 1])  
+                        results[index] += 1 # add 1 to the slot counting
+        #-------------------------------------------------------------------------------------------------------------#
+        self.results = results
+
+    def create_bcs_code(self):
+        #------------------------------------------Create the bcs code (SSP)-------------------------------------#
+        bcs_code = '''
+        fast = 1000;
+        r = 1;
+
+
+        Setup[''' + self.print_setup_params() + '''] = ''' + self.print_setup() + '''.{start![1] ,fast};
+        
+        
+        P[x,y,sum,last,serial] = {start?[1], r}.
+        (
+        [y==sum]->{done![x],fast} ||
+
+        [y!=sum]->{y?[0..sum], fast}.({splitDown,1}.P[x,y+1,sum,0,serial] + {splitDiag,1}.P[x+1,y+1,sum,1,serial]) ||
+
+        [y!=sum]->{~y?[0..sum],fast}.( [last == 0] -> {continueStraight, r}.P[x,y+1,sum,0,serial] + [last == 1]-> {continueStraight, r}.P[x+1,y+1,sum,1,serial])
+        );
+
+
+        Setup[''' + self.print_partial_sums() + ''']''' + "\n" + self.print_proccesses_start()
+
+        #---------------------------------------------------------------------------------------------------#
+        self.bcs_code = bcs_code
+
+    @staticmethod
+    def Calc_first_n_primes(n):
+        primes = [2]
+        n = int(n)
+        n -= 1
+        i = 3
+        is_prime = True
+        
+        while n > 0:
+            is_prime = True
+            for k in range(2, math.ceil(i/2)+1):
+                if i % k == 0:
+                    is_prime = False
+                    break
+        
+            if(is_prime): 
+                n -= 1
+                primes.append(i)
+        
+            i += 1
+
+        return primes
+
+
+class Exact_cover(Script_generator):
+   
+    def __init__(self, list, num_of_agents, bcs_file_name, group_size):
+        super().__init__(list, num_of_agents, bcs_file_name)
+        self.agents_info = {}
+        self.group_size = group_size
+
+    def print_setup(self):
+        setup = "{s0![0],fast}"
+        for i in range(0, self.list_length-1):
+            num_of_possib = int(math.pow(2, self.group_size))
+
+            for x in range(0, num_of_possib):
+                if not self.bits_override(self.list[i+1], x):
+                    setup += ".{s" + str(i+1) + "!["+ str(x) +"],fast}"
+
+        return setup
+
+    @staticmethod
+    def bits_override(g1, g2):
+        if g1|g2 == g1^g2:
+            return False
+        else:
+            return True    
+
+    @staticmethod
+    def encode_group(n):
+        group = 0
+        size = int(n)
+        for i in range(0, size):
+            bit = int(input())
+            while bit!=0 and bit!=1:
+                print("invalid input. Enter 1 if item is in group or 0 else\n")
+                bit = int(input())
+
+            group += int(math.pow(2,i))*bit
+        
+        return group
+
+    def create_bcs_code(self):
+            #------------------------------------------Create the bcs code (Exact Cover)-------------------------------------#
+            bcs_code = '''
+            fast = 1000;
+            r = 1;
+
+
+            Setup[''' + self.print_setup_params() + '''] = ''' + self.print_setup() + '''.{start![1] ,fast};
+            
+            
+            P[x,y,sum,last,serial] = {start?[1], r}.
+            (
+            [y==sum]->{done![x],fast} ||
+
+            [y!=sum]->{y?[x], fast}.({splitDown,fast}.P[x,y+1,sum,0,serial] + {splitDiag,fast}.P[x+1,y+1,sum,1,serial]) ||
+
+            [y!=sum]->{~y?[0],fast}.( [last == 0] -> {continueStraight, fast}.P[x,y+1,sum,0,serial] + [last == 1]-> {continueStraight, fast}.P[x+1,y+1,sum,1,serial]) ||
+
+            [y!=sum]->{y?[0],fast}.{~y?[x],fast}.{blockedSplitDown,fast}.P[x,y+1,sum,0,serial]
+            );
+
+
+            Setup[''' + self.print_partial_sums() + ''']''' + "\n" + self.print_proccesses_start()
+
+            #---------------------------------------------------------------------------------------------------#
+            self.bcs_code = bcs_code
+
+    def interpret_results(self):
+
+        agents_info = self.agents_info
+        DIR_path = self.DIR_path
+        
+        results = numpy.zeros(self.list_sum + 1, dtype = numpy.int8)
+        self.results = results
+
+        with open(str(DIR_path) + '/simulationOutput') as csvFile:
+
+            fileReader = csv.reader(csvFile, delimiter = '\t', skipinitialspace=True)
+            
+            for line in fileReader:
+            
+                if "splitDown" in line or "splitDiag" in line or "done" in line: # If this line is in our interest
+
+                    x = line[line.index("x") + 1]      # get x 
+                    x = int(x)
+
+                    y = line[line.index("y") + 1]      # get y
+                    y = int(y)
+
+                    serial = line[line.index("serial") + 1]   # get the proccess serial number
+
+                    if not serial in agents_info:  # If the proccess is not in our dictionary, add it
+                        agents_info[serial] = ""
+                    
+                    if( "done" in line):
+                        results[x] += 1
+
+                    if "splitDown" in line:
+                        agents_info[serial] += "[x:" + str(x) + ", y:" + str(y) + ", Down]"
+                    
+                    if "splitDiag" in line:
+                        agents_info[serial] += "[x:" + str(x) + ", y:" + str(y) + ", Diag]"
+
+    def browse_results(self):
+
+        while True:
+            answer = input("To see a specific slot, enter 1;\n To see an agent's route, enter 2 \n otherwise enter -1 \n")
+            answer = int(answer)
+            if answer == -1:
+                break
+            
+            if answer == 1:
+                answer = input("Enter slot number")
+                answer = int(answer)
+
+                if answer >= len(results) or answer < 0:
+                    print("Index out of results range\n")
+                    continue
+
+                print("Number of agents on output slot " + str(answer) + ": " + str(results[int(answer)]) + '\n')
+            
+            if answer == 2: 
+                answer = input("Enter agent's serial number")
+                answer = int(answer)
+                if answer > self.num_of_agents-1 or answer < 0:
+                    print("Invalid serial number")
+                    continue
+
+                print("Route taken by agent: ")
+                print(self.agents_info.get(str(answer)))
+                
+
+
+def manual_SSP_input():
+    # number of elements as input 
+            lst_length = int(input("Enter the length of the set and a set of numbers for the SSP: ")) 
+            lst = []
+
+            # iterating till the range 
+            for i in range(0, lst_length): 
+                ele = int(input()) 
+                lst.append(ele) # adding the element 
+                
+            lst.sort()
+            
+            num_of_agents = input("Enter amount of agents")
+
+            return lst, num_of_agents
+
+def primes_input():
+
+    lst_length = int(input("Enter the amount of first prime numbers to use as a set for the SSP"))
+    lst = Calc_first_n_primes(lst_length)
+    num_of_agents = input("Enter amount of agents")
+
+    return lst, num_of_agents
+
+def Exact_cover_input():
+
+    lst_length = int(input("Enter number of groups\n"))
+    size = int(input("Enter total number of items\n"))
+    lst = []
+
+    for i in range(0, lst_length):
+        print("For group number " + str(i) + ", Enter 1 if item is in group and 0 o.w\n")
+        lst.append(Exact_cover.encode_group(size))
+
+    lst.sort()
+    
+    num_of_agents = input("Enter number of agents")
+
+    return lst, num_of_agents, size
+
+def menu():
+    # creating an empty list 
+    lst = [] 
+    mode = int(input("Choose simulation mode;\n 1: Manual SSP \n 2: Run SSP on first n primes \n 3: Exact Cover Problem"))
+
+    if  mode == 1:
+        lst, num_of_agents = manual_SSP_input()
+        scrptG = SSP(lst, num_of_agents, "manual_SSP_generated_bcs_code.bc") # Create a SSP object
+
+    if mode == 2:
+        lst, num_of_agents = primes_input()
+        scrptG = SSP(lst, num_of_agents, "primes_SSP_generated_bcs_code.bc") # Create a SSP object
+
+    if mode == 3:
+        lst, num_of_agents, size = Exact_cover_input()
+        scrptG = Exact_cover(lst, num_of_agents, "Exact_cover_generated_bcs_code.bc", size)
+    
+    
+    return scrptG
+
+
+#   ______________________________Main______________________________________________
+if __name__ == "__main__":
+
+    scrptG = menu()
+
+    scrptG.create_bcs_code()
+
+    scrptG.generate_and_run()
+
+    scrptG.interpret_results()
+
+    scrptG.save_plot()
+
+    scrptG.print_results()
+
+    scrptG.browse_results()
