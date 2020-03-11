@@ -72,8 +72,8 @@ class Script_generator:
     def generate_and_run(self):
         #---------------------------Create a new file for the generated code and run a simulation---------------------# 
         BCS_file = open(self.bcs_file_name, "w")    # Open a new text file with write premissions
-        BCS_file.write(self.bcs_code)                         # Write the bcs code to the file
-        BCS_file.close()                                 # close the file
+        BCS_file.write(self.bcs_code)               # Write the bcs code to the file
+        BCS_file.close()                            # close the file
 
         start = time.time()  # get time before computation
         subprocess.run(str(self.DIR_path) + '/bin/bcs ' + self.bcs_file_name, shell = True)	# Run BCS simulation on the generated code
@@ -150,6 +150,20 @@ class SSP(Script_generator):
 
     def create_bcs_code(self):
         #------------------------------------------Create the bcs code (SSP)-------------------------------------#
+        #   Model explanation:
+        #   At first, the setup process is started. It produces beacons at y levels that 
+        #   correspond to the partial sums of the numbers given, these are the split junctions.
+        #   These beacons transmit the value 1.
+        #  
+        #   After the setup is done, the agents are created, each with a unique serial number, and then
+        #   begin to travel in the system. At each step an agent checks his y level:
+        #   If there is no active beacon on this y channel, then the agent proceeds to travel in the last direction that he took.
+        #   If there is an active beacon on this y channel, then it means the agent reached a split junction,
+        #   and then there is a 50% chance that he will split down, and 50% chance that he will split diagonally
+        # 
+        #   When an agent reaches a y level that is equal to the SSP numbers sum, it creates a beacon 
+        #   on a channel called "done" and transmits through it his x level.
+
         bcs_code = '''
         fast = 1000;
         r = 1;
@@ -238,6 +252,24 @@ class Exact_cover(Script_generator):
 
     def create_bcs_code(self):
             #------------------------------------------Create the bcs code (Exact Cover)-------------------------------------#
+            #   Model explanation:
+            #   At first, the setup process is started. It produces beacons at y levels that 
+            #   correspond to the partial sums of the sets encoding. For each set there is a calculation
+            #   of what x level bits don't override the set encoding. A set transmits over his beacon 
+            #   an x value if and only if this x value bits do not not override the set encoding's bits.
+            #  
+            #   After the setup is done, the agents are created, each with a unique serial number, and then
+            #   begin to travel in the system. At each step an agent checks his y level:
+            #   If there is no active beacon on this y channel that transmits x, then the agent proceeds to travel in the last direction that he took.
+            #
+            #   If there is an active beacon on this y channel that transmits x, then it means the agent reached a split junction,
+            #   and then there is a 50% chance that he will split down, and 50% chance that he will split diagonally.
+            #   If there is an active beacon on this y channel but it does not transmit x, then it means the agent reached
+            #   a blocked junction, then it will proceed in the last direction that he took.
+            #  
+            #   When an agent reaches a y level that is equal to the exact cover groups encoding sum, it creates a beacon 
+            #   on a channel called "done" and transmits through it his x level.
+
             bcs_code = '''
             fast = 1000;
             r = 1;
