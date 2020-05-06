@@ -19,6 +19,12 @@ class Script_generator:
         self.DIR_path = Path().absolute()
         self. elapsed_time = 0
         self.results = []
+        self.tagged = True
+        self.agents_info = {}
+
+
+    def set_tagged(self, bool):
+        self.tagged = bool
 
     def get_partial_sums(self):
         # The method returns a list of the partial sums of self.list
@@ -57,17 +63,6 @@ class Script_generator:
         '''This method prints the bcs setup. Implementation in inheriting classes'''
         return
 
-    def print_proccesses_start(self):
-        serial = 0
-        string = ""
-        for i in range(0, self.num_of_agents):
-            string += "||" + "P[0,0," + str(self.list_sum) + ",0,"+ str(serial) +"]\n"
-            serial += 1
-        string += ";"
-        return string
-    
-        self.bcs_code = bcs_code
-
     def generate_and_run(self):
         #---------------------------Create a new file for the generated code and run a simulation---------------------# 
         BCS_file = open(self.bcs_file_name, "w")    # Open a new text file with write premissions
@@ -103,7 +98,7 @@ class Script_generator:
 
         print("Elapsed computation time: " + str(elapsed_time) + " seconds\n")
 
-    def browse_results(self):
+    def browse_result_slots(self):
         results = self.results
 
         while True:
@@ -118,20 +113,95 @@ class Script_generator:
 
             print("Number of agents on output slot " + str(answer) + ": " + str(results[int(answer)]) + '\n')
 
+    def browse_results_tagged(self):
 
-class SSP(Script_generator):
+        while True:
+            answer = input("To see a specific slot, enter 1;\n To see an agent's route, enter 2 \n otherwise enter -1 \n")
+            answer = int(answer)
+            if answer == -1:
+                break
+            
+            if answer == 1:
+                browse_result_slots()
+            
+            if answer == 2: 
+                answer = input("Enter agent's serial number")
+                answer = int(answer)
+                if answer > self.num_of_agents-1 or answer < 0:
+                    print("Invalid serial number")
+                    continue
 
-    def __init__(self, list, num_of_agents, bcs_file_name):
-        super().__init__(list, num_of_agents, bcs_file_name)
+                print("Route taken by agent: ")
+                print(self.agents_info.get(str(answer)))
 
-    def print_setup(self):
-        setup = "{s0![1],fast}"
-        for i in range(1, self.list_length):
-            setup += ".{s" + str(i) + "![1],fast}"
+    def browse_results(self):
+        if self.tagged:
+            self.browse_results_tagged()
+        else:
+            self.browse_result_slots()
 
-        return setup
+    def print_start_P_untagged(self):
+        
+        string = "|| num_of_agents*P[0,0," + str(self.list_sum) + ",0,0]\n"   # all agents have serial = 0
+        return string
 
-    def interpret_results(self):
+    def print_start_P_tagged(self):
+        
+        serial = 0
+        string = ""
+
+        for i in range(0, self.num_of_agents):
+            string += "||P[0,0," + str(self.list_sum) + ",0,"+ str(serial) +"]\n"
+            serial += 1
+
+        return string
+
+    def print_processes_start(self):
+        
+        if self.tagged:
+            return self.print_start_P_tagged()
+        else:
+            return self.print_start_P_untagged()
+
+    def interpret_results_tagged(self):
+
+        agents_info = self.agents_info
+        DIR_path = self.DIR_path
+        
+        results = numpy.zeros(self.list_sum + 1, dtype = numpy.int8)
+        self.results = results
+
+        with open(str(DIR_path) + '/simulationOutput') as csvFile:
+
+            fileReader = csv.reader(csvFile, delimiter = '\t', skipinitialspace=True)
+            
+            for line in fileReader:
+            
+                if "splitDown" in line or "splitDiag" in line or "done" in line: # If this line is in our interest
+
+                    x = line[line.index("x") + 1]      # get x 
+                    x = int(x)
+
+                    y = line[line.index("y") + 1]      # get y
+                    y = int(y)
+
+                    serial = line[line.index("serial") + 1]   # get the proccess serial number
+
+                    if not serial in agents_info:  # If the proccess is not in our dictionary, add it
+                        agents_info[serial] = ""
+                    
+                    if( "done" in line):
+                        results[x] += 1
+
+                    if "splitDown" in line:
+                        agents_info[serial] += "[x:" + str(x) + ", y:" + str(y) + ", Down]" 
+                    
+                    if "splitDiag" in line:
+                        agents_info[serial] += "[x:" + str(x) + ", y:" + str(y) + ", Diag]"
+                    
+                    #TODO: create a class "agent_info" so we can easily get info on agents instead of this dictionary
+
+    def interpret_results_untagged(self):
         #----------------------------Read and interpret the results file----------------------------------------------#
         DIR_path = self.DIR_path
         list_sum = self.list_sum
@@ -147,8 +217,45 @@ class SSP(Script_generator):
         #-------------------------------------------------------------------------------------------------------------#
         self.results = results
 
+    def interpret_results(self):
+        if self.tagged:
+            self.interpret_results_tagged()
+        else:
+            self.interpret_results_untagged()
+
+    def print_constants(self):
+        string = '''
+        fast = 1000;
+        r = 1;
+        num_of_agents = ''' + str(self.num_of_agents) + ";"
+        return string
+
     def create_bcs_code(self):
-        #------------------------------------------Create the bcs code (SSP)-------------------------------------#
+
+            bcs_code = self.print_constants() + '''
+            Setup[''' + self.print_setup_params() + '''] = ''' + self.print_setup() + '''.{start![1] ,fast};
+            
+            
+            P[x,y,sum,last,serial] = {start?[1], r}.
+            (
+            [y==sum]->{done![x],fast} ||
+
+            [y!=sum]->{y?[x], fast}.({splitDown,fast}.P[x,y+1,sum,0,serial] + {splitDiag,fast}.P[x+1,y+1,sum,1,serial]) ||
+
+            [y!=sum]->{~y?[0],fast}.( [last == 0] -> {continueStraight, fast}.P[x,y+1,sum,0,serial] + [last == 1]-> {continueStraight, fast}.P[x+1,y+1,sum,1,serial]) ||
+
+            [y!=sum]->{y?[0],fast}.{~y?[x],fast}.{blockedSplitDown,fast}.P[x,y+1,sum,0,serial]
+            );
+
+
+            Setup[''' + self.print_partial_sums() + ''']''' + "\n" + self.print_processes_start() + ";"
+
+            #---------------------------------------------------------------------------------------------------#
+            self.bcs_code = bcs_code
+
+
+class SSP(Script_generator):
+        #------------------------------------------bcs model notes (SSP)-------------------------------------#
         #   Model explanation:
         #   At first, the setup process is started. It produces beacons at y levels that 
         #   correspond to the partial sums of the numbers given, these are the split junctions.
@@ -163,28 +270,23 @@ class SSP(Script_generator):
         #   When an agent reaches a y level that is equal to the SSP numbers sum, it creates a beacon 
         #   on a channel called "done" and transmits through it his x level.
 
-        bcs_code = '''
-        fast = 1000;
-        r = 1;
 
+    def __init__(self, list, num_of_agents, bcs_file_name):
+        super().__init__(list, num_of_agents, bcs_file_name)
 
-        Setup[''' + self.print_setup_params() + '''] = ''' + self.print_setup() + '''.{start![1] ,fast};
-        
-        
-        P[x,y,sum,last,serial] = {start?[1], r}.
-        (
-        [y==sum]->{done![x],fast} ||
+    def print_setup(self):
+        setup = "{s0![0],fast}"
+        for i in range(1, self.list_sum):
+            setup += ".{s0![" + str(i) + "], fast}"
 
-        [y!=sum]->{y?[0..sum], fast}.({splitDown,1}.P[x,y+1,sum,0,serial] + {splitDiag,1}.P[x+1,y+1,sum,1,serial]) ||
+        for i in range(1, self.list_length):
+            for k in range(0, self.list_sum):
+                setup += ".{s" + str(i) + "!["+ str(k) +"],fast}"
 
-        [y!=sum]->{~y?[0..sum],fast}.( [last == 0] -> {continueStraight, r}.P[x,y+1,sum,0,serial] + [last == 1]-> {continueStraight, r}.P[x+1,y+1,sum,1,serial])
-        );
+        return setup
 
+    
 
-        Setup[''' + self.print_partial_sums() + ''']''' + "\n" + self.print_proccesses_start()
-
-        #---------------------------------------------------------------------------------------------------#
-        self.bcs_code = bcs_code
 
     @staticmethod
     def calc_first_n_primes(n):
@@ -209,12 +311,29 @@ class SSP(Script_generator):
 
         return primes
 
-
 class Exact_cover(Script_generator):
    
+   #------------------------------------------Create the bcs code (Exact Cover)-------------------------------------#
+            #   Model explanation:
+            #   At first, the setup process is started. It produces beacons at y levels that 
+            #   correspond to the partial sums of the sets encoding. For each set there is a calculation
+            #   of what x level bits don't override the set encoding. A set transmits over his beacon 
+            #   an x value if and only if this x value bits do not override the set encoding's bits.
+            #  
+            #   After the setup is done, the agents are created, each with a unique serial number, and then
+            #   begin to travel the network. At each step an agent checks his y level:
+            #   If there is no active beacon on this y channel that transmits x, then the agent proceeds to travel in the last direction that he took.
+            #
+            #   If there is an active beacon on this y channel that transmits x, then it means the agent reached a split junction,
+            #   and then there is a 50% chance that he will split down, and 50% chance that he will split diagonally.
+            #   If there is an active beacon on this y channel but it does not transmit x, then it means the agent reached
+            #   a blocked junction, then it will proceed in the last direction that it took.
+            #  
+            #   When an agent reaches a y level that is equal to the exact cover groups encoding sum, it creates a beacon 
+            #   on a channel called "done" and transmits through it his x level.
+
     def __init__(self, list, num_of_agents, bcs_file_name, group_size):
         super().__init__(list, num_of_agents, bcs_file_name)
-        self.agents_info = {}
         self.group_size = group_size
 
     def print_setup(self):
@@ -248,116 +367,6 @@ class Exact_cover(Script_generator):
             group += int(math.pow(2,i))*bit
         
         return group
-
-    def create_bcs_code(self):
-            #------------------------------------------Create the bcs code (Exact Cover)-------------------------------------#
-            #   Model explanation:
-            #   At first, the setup process is started. It produces beacons at y levels that 
-            #   correspond to the partial sums of the sets encoding. For each set there is a calculation
-            #   of what x level bits don't override the set encoding. A set transmits over his beacon 
-            #   an x value if and only if this x value bits do not not override the set encoding's bits.
-            #  
-            #   After the setup is done, the agents are created, each with a unique serial number, and then
-            #   begin to travel in the system. At each step an agent checks his y level:
-            #   If there is no active beacon on this y channel that transmits x, then the agent proceeds to travel in the last direction that he took.
-            #
-            #   If there is an active beacon on this y channel that transmits x, then it means the agent reached a split junction,
-            #   and then there is a 50% chance that he will split down, and 50% chance that he will split diagonally.
-            #   If there is an active beacon on this y channel but it does not transmit x, then it means the agent reached
-            #   a blocked junction, then it will proceed in the last direction that he took.
-            #  
-            #   When an agent reaches a y level that is equal to the exact cover groups encoding sum, it creates a beacon 
-            #   on a channel called "done" and transmits through it his x level.
-
-            bcs_code = '''
-            fast = 1000;
-            r = 1;
-
-
-            Setup[''' + self.print_setup_params() + '''] = ''' + self.print_setup() + '''.{start![1] ,fast};
-            
-            
-            P[x,y,sum,last,serial] = {start?[1], r}.
-            (
-            [y==sum]->{done![x],fast} ||
-
-            [y!=sum]->{y?[x], fast}.({splitDown,fast}.P[x,y+1,sum,0,serial] + {splitDiag,fast}.P[x+1,y+1,sum,1,serial]) ||
-
-            [y!=sum]->{~y?[0],fast}.( [last == 0] -> {continueStraight, fast}.P[x,y+1,sum,0,serial] + [last == 1]-> {continueStraight, fast}.P[x+1,y+1,sum,1,serial]) ||
-
-            [y!=sum]->{y?[0],fast}.{~y?[x],fast}.{blockedSplitDown,fast}.P[x,y+1,sum,0,serial]
-            );
-
-
-            Setup[''' + self.print_partial_sums() + ''']''' + "\n" + self.print_proccesses_start()
-
-            #---------------------------------------------------------------------------------------------------#
-            self.bcs_code = bcs_code
-
-    def interpret_results(self):
-
-        agents_info = self.agents_info
-        DIR_path = self.DIR_path
-        
-        results = numpy.zeros(self.list_sum + 1, dtype = numpy.int8)
-        self.results = results
-
-        with open(str(DIR_path) + '/simulationOutput') as csvFile:
-
-            fileReader = csv.reader(csvFile, delimiter = '\t', skipinitialspace=True)
-            
-            for line in fileReader:
-            
-                if "splitDown" in line or "splitDiag" in line or "done" in line: # If this line is in our interest
-
-                    x = line[line.index("x") + 1]      # get x 
-                    x = int(x)
-
-                    y = line[line.index("y") + 1]      # get y
-                    y = int(y)
-
-                    serial = line[line.index("serial") + 1]   # get the proccess serial number
-
-                    if not serial in agents_info:  # If the proccess is not in our dictionary, add it
-                        agents_info[serial] = ""
-                    
-                    if( "done" in line):
-                        results[x] += 1
-
-                    if "splitDown" in line:
-                        agents_info[serial] += "[x:" + str(x) + ", y:" + str(y) + ", Down]"
-                    
-                    if "splitDiag" in line:
-                        agents_info[serial] += "[x:" + str(x) + ", y:" + str(y) + ", Diag]"
-
-    def browse_results(self):
-
-        while True:
-            answer = input("To see a specific slot, enter 1;\n To see an agent's route, enter 2 \n otherwise enter -1 \n")
-            answer = int(answer)
-            if answer == -1:
-                break
-            
-            if answer == 1:
-                answer = input("Enter slot number")
-                answer = int(answer)
-
-                if answer >= len(results) or answer < 0:
-                    print("Index out of results range\n")
-                    continue
-
-                print("Number of agents on output slot " + str(answer) + ": " + str(results[int(answer)]) + '\n')
-            
-            if answer == 2: 
-                answer = input("Enter agent's serial number")
-                answer = int(answer)
-                if answer > self.num_of_agents-1 or answer < 0:
-                    print("Invalid serial number")
-                    continue
-
-                print("Route taken by agent: ")
-                print(self.agents_info.get(str(answer)))
-                
 
 
 def manual_SSP_input():
@@ -417,6 +426,13 @@ def menu():
         lst, num_of_agents, size = Exact_cover_input()
         scrptG = Exact_cover(lst, num_of_agents, "Exact_cover_generated_bcs_code.bc", size)
     
+    tagged = input("tag agents? y: Yes, n: No")
+    if tagged == "y":
+        scrptG.set_tagged(True)
+    elif tagged == "n":
+        scrptG.set_tagged(False)
+    else:
+        print("Invalid input. setting default")
     
     return scrptG
 
