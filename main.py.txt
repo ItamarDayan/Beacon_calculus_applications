@@ -66,7 +66,6 @@ class Script_generator:
         string += ";"
         return string
     
-    
         self.bcs_code = bcs_code
 
     def generate_and_run(self):
@@ -188,7 +187,7 @@ class SSP(Script_generator):
         self.bcs_code = bcs_code
 
     @staticmethod
-    def Calc_first_n_primes(n):
+    def calc_first_n_primes(n):
         primes = [2]
         n = int(n)
         n -= 1
@@ -380,7 +379,7 @@ def manual_SSP_input():
 def primes_input():
 
     lst_length = int(input("Enter the amount of first prime numbers to use as a set for the SSP"))
-    lst = Calc_first_n_primes(lst_length)
+    lst = SSP.calc_first_n_primes(lst_length)
     num_of_agents = input("Enter amount of agents")
 
     return lst, num_of_agents
