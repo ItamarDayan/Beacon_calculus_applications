@@ -50,6 +50,8 @@ class Script_generator:
 
 
 
+
+
     def set_num_of_threads(self, num):
 
         self.num_of_threads = str(num)
@@ -142,17 +144,9 @@ class Script_generator:
 
 
 
-    def generate_and_run(self):
+    def run_simulation(self):
 
-        #---------------------------Create a new file for the generated code and run a simulation---------------------# 
-
-        BCS_file = open(self.bcs_file_name, "w")    # Open a new text file with write premissions
-
-        BCS_file.write(self.bcs_code)               # Write the bcs code to the file
-
-        BCS_file.close()                            # close the file
-
-
+        #------------------------ Run bcs simulation -----------------------------------# 
 
         cmd = (str(self.DIR_path) + '/bin/bcs -t ' + str(self.num_of_threads) + ' -s '     # Create cmd
 
@@ -160,21 +154,27 @@ class Script_generator:
 
 
 
-        start = time.time()  # get time before computation
+        elapsed_time = run_shell_command(cmd)
+
+        
+
+        self.elapsed_time = elapsed_time
+
+        #-------------------------------------------------------------------------------#
 
 
 
-        subprocess.run(cmd, shell = True)	# Run BCS simulation on the generated code
+    def generate_and_run(self):
+
+        self.create_simulation()
+
+        self.run_simulation()
 
 
 
-        end = time.time()    # get time after computation
+    def create_simulation(self):
 
-
-
-        self.elapsed_time = end-start  # estimate the computation time
-
-        #--------------------------------------------------------------------------------------------------------------#
+        write_new_file(self.file_name, self.data_to_write)
 
 
 
@@ -224,6 +224,8 @@ class Script_generator:
 
     def browse_result_slots(self):
 
+        # this function lets the user browse the number of agents in each slots
+
         results = self.results
 
 
@@ -254,11 +256,11 @@ class Script_generator:
 
     def browse_results_tagged(self):
 
-
+        # this function lets the user browse the number of agents in each slot and the path of every agent
 
         while True:
 
-            answer = input("To see a specific slot, enter 1;\n To see an agent's route, enter 2 \n otherwise enter -1 \n")
+            answer = input("To see a specific slot, enter 1;\nTo see an agent's route, enter 2 \notherwise enter -1 \n\n")
 
             answer = int(answer)
 
@@ -270,13 +272,13 @@ class Script_generator:
 
             if answer == 1:
 
-                browse_result_slots()
+                self.browse_result_slots()
 
             
 
             if answer == 2: 
 
-                answer = input("Enter agent's serial number")
+                answer = input("Enter agent's serial number ")
 
                 answer = int(answer)
 
@@ -290,7 +292,7 @@ class Script_generator:
 
                 print("Route taken by agent: ")
 
-                print(self.agents_info.get(str(answer)))
+                print(self.agents_info.get(str(answer)) + '\n')
 
 
 
@@ -492,7 +494,11 @@ class Script_generator:
 
             bcs_code = self.print_constants() + '''
 
-            Setup[''' + self.print_setup_params() + '''] = ''' + self.print_setup() + '''.{start![1] ,fast};
+
+
+
+
+            Setup[''' + self.print_setup_params() + '''] = \n \t \t \t \t''' + self.print_setup() + '''.{start![1] ,fast};
 
             
 
@@ -529,8 +535,6 @@ class Script_generator:
             #---------------------------------------------------------------------------------------------------#
 
             self.bcs_code = bcs_code
-
-
 
 
 
@@ -576,29 +580,23 @@ class SSP(Script_generator):
 
     def print_setup(self):
 
-        setup = "{s0![0],fast}"
+        setup = "{s0![0],fast} \n \t \t \t \t"
 
-        for i in range(1, self.list_sum):
-
-            setup += ".{s0![" + str(i) + "], fast}"
-
-
+        partial_sums = self.get_partial_sums()
 
         for i in range(1, self.list_length):
 
-            for k in range(0, self.list_sum):
+            for k in range(0, partial_sums[i-1] + 1):
 
                 setup += ".{s" + str(i) + "!["+ str(k) +"],fast}"
 
-
+            setup += '\n \t \t \t \t'
 
         return setup
 
 
 
     
-
-
 
 
 
@@ -700,19 +698,33 @@ class Exact_cover(Script_generator):
 
     def print_setup(self):
 
-        setup = "{s0![0],fast}"
+        
+
+        max_junctions = int(math.pow(2, self.group_size)) - 1
+
+        partial_sums = self.get_partial_sums()
+
+
+
+        setup = "{s0![0],fast} \n \t \t \t \t"
+
+        
 
         for i in range(0, self.list_length-1):
 
-            num_of_possib = int(math.pow(2, self.group_size))
+            junctions_on_level = min(max_junctions, partial_sums[i])
 
+            
 
-
-            for x in range(0, num_of_possib):
+            for x in range(0, junctions_on_level + 1):          # until junctions_on_level including
 
                 if not self.bits_override(self.list[i+1], x):
 
                     setup += ".{s" + str(i+1) + "!["+ str(x) +"],fast}"
+
+            
+
+            setup += "\n \t \t \t \t"
 
 
 
@@ -907,6 +919,54 @@ def menu():
     return scrptG
 
 
+
+def run_shell_command(cmd):
+
+    
+
+    cmd = str(cmd)
+
+    
+
+    start = time.time()  # get time before computation
+
+
+
+    subprocess.run(cmd, shell = True)	# Run BCS simulation on the generated code
+
+
+
+    end = time.time()    # get time after computation
+
+
+
+    elapsed_time = end-start  # estimate the computation time
+
+
+
+    return elapsed_time
+
+
+
+def write_new_file(file_name, data_to_write):
+
+    
+
+    file_name = str(file_name)
+
+    data_to_write = str(data_to_write)
+
+
+
+    #---------------------------Create a new file for the generated bcs code ---------------------# 
+
+    file = open(file_name, "w")             # Open a new text file with write premissions
+
+    file.write(data_to_write)               # Write the bcs code to the file
+
+    file.close()                            # close the file        
+
+    #----------------------------------------------------------------------------------------------#
 
 
 
